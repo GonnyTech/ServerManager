@@ -1,0 +1,155 @@
+/* Server Guardian Modern TCSS */
+
+Screen {
+    background: #0f172a;
+    color: #e2e8f0;
+}
+
+Header {
+    background: #1e293b;
+    color: #38bdf8;
+    text-style: bold;
+    height: 3;
+}
+
+Footer {
+    background: #1e293b;
+    color: #94a3b8;
+}
+
+#status_bar {
+    dock: bottom;
+    height: 1;
+    background: #334155;
+    color: #f8fafc;
+    padding: 0 1;
+}
+
+/* Metric Cards */
+.metrics-grid {
+    layout: grid;
+    grid-size: 4 1;
+    grid-gutter: 1;
+    height: 7;
+    margin: 1 1 0 1;
+}
+
+.metric-card {
+    background: #1e293b;
+    border: round #38bdf8;
+    padding: 1;
+    height: 100%;
+}
+
+.metric-title {
+    color: #94a3b8;
+    text-style: bold;
+}
+
+.metric-val {
+    color: #38bdf8;
+    text-style: bold;
+    font-size: 1;
+}
+
+.metric-sub {
+    color: #64748b;
+}
+
+/* Tables */
+DataTable {
+    background: #0f172a;
+    border: round #334155;
+    margin: 1;
+    height: 1fr;
+}
+
+DataTable > .datatable--header {
+    background: #1e293b;
+    color: #38bdf8;
+    text-style: bold;
+}
+
+DataTable > .datatable--cursor {
+    background: #0369a1;
+    color: #ffffff;
+}
+
+/* Settings Form */
+.settings-container {
+    padding: 1 2;
+    overflow-y: auto;
+}
+
+.section-title {
+    color: #38bdf8;
+    text-style: bold;
+    margin: 1 0 0 0;
+    border-bottom: solid #334155;
+}
+
+.form-row {
+    margin: 1 0;
+}
+
+.form-label {
+    color: #cbd5e1;
+    margin-bottom: 0;
+}
+
+Input {
+    background: #1e293b;
+    border: tall #334155;
+    color: #f8fafc;
+}
+
+Input:focus {
+    border: tall #38bdf8;
+}
+
+.btn-row {
+    margin: 1 0;
+    layout: horizontal;
+    align: left middle;
+}
+
+Button {
+    margin-right: 2;
+    background: #0284c7;
+    color: #ffffff;
+    border: none;
+    text-style: bold;
+}
+
+Button:hover {
+    background: #0369a1;
+}
+
+Button.btn-success {
+    background: #16a34a;
+}
+
+Button.btn-success:hover {
+    background: #15803d;
+}
+
+Button.btn-warning {
+    background: #d97706;
+}
+
+Button.btn-warning:hover {
+    background: #b45309;
+}
+
+/* Updates Tab */
+.pending-card {
+    background: #1e293b;
+    border: round #f59e0b;
+    margin: 1;
+    padding: 1;
+}
+
+.pending-title {
+    color: #fbbf24;
+    text-style: bold;
+}
