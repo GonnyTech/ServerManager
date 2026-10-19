@@ -1,0 +1,28 @@
+[Unit]
+Description=Server Guardian - Semiautomatic Server Management Daemon
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+# By default, runs as the current user. To specify a dedicated user, adjust User= and Group=
+# User=%I
+# Group=%I
+
+# Modify the WorkingDirectory and ExecStart paths according to your virtualenv / installation path
+WorkingDirectory=/opt/ServerManager
+ExecStart=/opt/ServerManager/.venv/bin/server-guardian daemon
+
+Restart=always
+RestartSec=5
+KillMode=process
+
+# Security sandboxing
+ProtectSystem=full
+PrivateTmp=true
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
