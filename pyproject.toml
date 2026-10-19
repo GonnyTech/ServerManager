@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "Semiautomatic Server Management Tool (Client-Daemon) for Ubuntu Linux"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
     { name = "GonnyTech" }
 ]
@@ -20,5 +20,12 @@ dependencies = [
     "packaging>=23.0"
 ]
 
+[tool.setuptools.packages.find]
+include = ["server_guardian*"]
+
+[tool.setuptools.package-data]
+"server_guardian.tui" = ["*.tcss"]
+
 [project.scripts]
 server-guardian = "server_guardian.cli:main"
+
