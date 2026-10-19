@@ -98,22 +98,27 @@ class MonitorView(Container):
             name = gpu.get("name", "GPU")
             gpu_pct = gpu.get("percent", 0)
             transcoding = gpu.get("transcoding_active", False)
+            temp = gpu.get("temperature_c")
+            temp_str = f" | {temp}°C" if temp is not None else ""
 
             if vendor == "NVIDIA":
                 enc = gpu.get("encoder_percent", 0)
-                temp = gpu.get("temperature_c", 0)
                 used_m = gpu.get("memory_used_mb", 0)
                 total_m = gpu.get("memory_total_mb", 0)
                 main_txt = f"{gpu_pct}%" + (f" (ENC {enc}%)" if enc > 0 else "")
-                sub_txt = f"{name[:15]} | {temp}°C | {used_m}/{total_m}MB"
+                sub_txt = f"{name[:16]}{temp_str} | {used_m}/{total_m}MB"
             elif vendor == "Intel":
                 freq = gpu.get("freq_mhz", 0)
-                tag = " (QSV Active)" if transcoding else ""
+                tag = " (QSV)" if transcoding else ""
                 main_txt = f"{gpu_pct}%{tag}" if gpu_pct > 0 else f"{freq}MHz{tag}"
-                sub_txt = f"{name} @ {freq}MHz"
+                sub_txt = f"{name[:20]}{temp_str}"
+            elif "ATI" in vendor or "AMD" in vendor:
+                driver = gpu.get("driver", "radeon")
+                main_txt = f"{gpu_pct}%" if gpu_pct > 0 else "Active"
+                sub_txt = f"{name[:20]}{temp_str} ({driver})"
             else:
-                main_txt = f"{gpu_pct}%"
-                sub_txt = f"{name[:22]}"
+                main_txt = f"{gpu_pct}%" if gpu_pct > 0 else "Active"
+                sub_txt = f"{name[:22]}{temp_str}"
         else:
             main_txt = "N/A"
             sub_txt = "No GPU / Driver detected"

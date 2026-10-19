@@ -17,10 +17,58 @@ _last_net_io = None
 _last_net_time = None
 
 
+def _detect_pci_gpu() -> Dict[str, str]:
+    """
+    Query lspci to find commercial GPU name and vendor (e.g. ATI Radeon HD 4650).
+    """
+    lspci = shutil.which("lspci")
+    if not lspci:
+        return {}
+
+    try:
+        res = subprocess.run([lspci], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=1.5)
+        if res.returncode == 0:
+            for line in res.stdout.splitlines():
+                lower = line.lower()
+                if any(k in lower for k in ["vga compatible controller", "3d controller", "display controller"]):
+                    parts = line.split(":", 2)
+                    raw_name = parts[2].strip() if len(parts) >= 3 else line.strip()
+
+                    vendor = "Unknown"
+                    if "amd" in lower or "ati" in lower:
+                        vendor = "ATI/AMD"
+                    elif "nvidia" in lower:
+                        vendor = "NVIDIA"
+                    elif "intel" in lower:
+                        vendor = "Intel"
+
+                    clean_name = raw_name
+                    import re
+                    brackets = re.findall(r"\[(.*?)\]", raw_name)
+                    if brackets:
+                        # e.g. ['AMD/ATI', 'RV730 PRO [Radeon HD 4650]'] -> extract 'Radeon HD 4650'
+                        last = brackets[-1]
+                        if "radeon" in last.lower() or "geforce" in last.lower() or "hd" in last.lower():
+                            clean_name = f"ATI {last}" if "ati" in lower and not last.lower().startswith("ati") else last
+                        elif len(brackets) >= 2 and ("ati" in brackets[0].lower() or "amd" in brackets[0].lower()):
+                            clean_name = f"{brackets[0]} {brackets[-1]}"
+                        else:
+                            clean_name = f"{vendor} {last}"
+
+                    return {
+                        "vendor": vendor,
+                        "raw_name": raw_name,
+                        "name": clean_name,
+                    }
+    except Exception:
+        pass
+    return {}
+
+
 def get_gpu_metrics() -> Dict[str, Any]:
     """
-    Detect and gather GPU metrics (NVIDIA NVENC/NVDEC, Intel QuickSync iGPU, AMD).
-    Optimized for media servers (Jellyfin/Plex) and hardware transcoding.
+    Detect and gather GPU metrics (NVIDIA NVENC/NVDEC, AMD/ATI Radeon HD, Intel QuickSync iGPU).
+    Optimized for media servers (Jellyfin/Plex) and hardware detection.
     """
     # 1. Check NVIDIA via nvidia-smi
     nvidia_smi = shutil.which("nvidia-smi")
@@ -48,6 +96,7 @@ def get_gpu_metrics() -> Dict[str, Any]:
                         "available": True,
                         "vendor": "NVIDIA",
                         "name": name,
+                        "driver": "nvidia",
                         "percent": gpu_util,
                         "encoder_percent": enc_util,
                         "decoder_percent": dec_util,
@@ -59,77 +108,133 @@ def get_gpu_metrics() -> Dict[str, Any]:
         except Exception:
             pass
 
-    # 2. Check Intel QuickSync / iGPU (DRM / sysfs)
-    try:
-        drm_cards = glob.glob("/sys/class/drm/card*")
-        for card in drm_cards:
+    # 2. Check PCI detection via lspci
+    pci_info = _detect_pci_gpu()
+
+    # 3. Check Linux DRM / sysfs
+    drm_cards = [c for c in glob.glob("/sys/class/drm/card[0-9]*") if "-" not in Path(c).name]
+
+    for card in drm_cards:
+        vendor_id = ""
+        driver_name = ""
+        try:
             vendor_path = Path(card) / "device" / "vendor"
             if vendor_path.exists():
                 vendor_id = vendor_path.read_text().strip().lower()
-                if vendor_id == "0x8086":  # Intel
-                    act_freq = 0
-                    max_freq = 0
-                    for freq_file in [
-                        Path(card) / "gt_act_freq_mhz",
-                        Path(card) / "device" / "drm" / Path(card).name / "gt_act_freq_mhz",
-                    ]:
-                        if freq_file.exists():
-                            try:
-                                act_freq = int(freq_file.read_text().strip())
-                                break
-                            except Exception:
-                                pass
+        except Exception:
+            pass
 
-                    for max_file in [
-                        Path(card) / "gt_max_freq_mhz",
-                        Path(card) / "device" / "drm" / Path(card).name / "gt_max_freq_mhz",
-                    ]:
-                        if max_file.exists():
-                            try:
-                                max_freq = int(max_file.read_text().strip())
-                                break
-                            except Exception:
-                                pass
+        try:
+            driver_path = Path(card) / "device" / "driver"
+            if driver_path.exists():
+                driver_name = driver_path.resolve().name
+        except Exception:
+            pass
 
-                    render_node = Path("/dev/dri/renderD128").exists()
-                    percent = round((act_freq / max_freq) * 100) if max_freq > 0 else 0
+        # Temperature check via hwmon
+        temp_c = None
+        try:
+            hwmon_dirs = glob.glob(f"{card}/device/hwmon/hwmon*")
+            if not hwmon_dirs:
+                hwmon_dirs = glob.glob("/sys/class/hwmon/hwmon*")
+            for h in hwmon_dirs:
+                t_file = Path(h) / "temp1_input"
+                if t_file.exists():
+                    try:
+                        temp_c = int(t_file.read_text().strip()) // 1000
+                        break
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
-                    return {
-                        "available": True,
-                        "vendor": "Intel",
-                        "name": "Intel QuickSync (iGPU)",
-                        "percent": percent,
-                        "encoder_percent": 0,
-                        "decoder_percent": 0,
-                        "freq_mhz": act_freq,
-                        "max_freq_mhz": max_freq,
-                        "render_node_present": render_node,
-                        "transcoding_active": act_freq > 350 if act_freq else False,
-                    }
-                elif vendor_id == "0x1002":  # AMD
-                    gpu_busy_path = Path(card) / "device" / "gpu_busy_percent"
-                    busy = 0
-                    if gpu_busy_path.exists():
-                        try:
-                            busy = int(gpu_busy_path.read_text().strip())
-                        except Exception:
-                            pass
-                    return {
-                        "available": True,
-                        "vendor": "AMD",
-                        "name": "AMD Radeon GPU",
-                        "percent": busy,
-                        "encoder_percent": 0,
-                        "decoder_percent": 0,
-                        "transcoding_active": False,
-                    }
-    except Exception:
-        pass
+        # Intel iGPU
+        if vendor_id == "0x8086" or (pci_info and pci_info.get("vendor") == "Intel"):
+            act_freq = 0
+            max_freq = 0
+            for freq_file in [
+                Path(card) / "gt_act_freq_mhz",
+                Path(card) / "device" / "drm" / Path(card).name / "gt_act_freq_mhz",
+            ]:
+                if freq_file.exists():
+                    try:
+                        act_freq = int(freq_file.read_text().strip())
+                        break
+                    except Exception:
+                        pass
+
+            for max_file in [
+                Path(card) / "gt_max_freq_mhz",
+                Path(card) / "device" / "drm" / Path(card).name / "gt_max_freq_mhz",
+            ]:
+                if max_file.exists():
+                    try:
+                        max_freq = int(max_file.read_text().strip())
+                        break
+                    except Exception:
+                        pass
+
+            render_node = Path("/dev/dri/renderD128").exists()
+            percent = round((act_freq / max_freq) * 100) if max_freq > 0 else 0
+            name = pci_info.get("name") if pci_info else "Intel QuickSync (iGPU)"
+
+            return {
+                "available": True,
+                "vendor": "Intel",
+                "name": name,
+                "driver": driver_name or "i915",
+                "percent": percent,
+                "encoder_percent": 0,
+                "decoder_percent": 0,
+                "freq_mhz": act_freq,
+                "max_freq_mhz": max_freq,
+                "temperature_c": temp_c,
+                "render_node_present": render_node,
+                "transcoding_active": act_freq > 350 if act_freq else False,
+            }
+
+        # AMD / ATI (including legacy cards like Radeon HD 4650)
+        if vendor_id == "0x1002" or (pci_info and pci_info.get("vendor") == "ATI/AMD"):
+            busy = 0
+            gpu_busy_path = Path(card) / "device" / "gpu_busy_percent"
+            if gpu_busy_path.exists():
+                try:
+                    busy = int(gpu_busy_path.read_text().strip())
+                except Exception:
+                    pass
+
+            name = pci_info.get("name") if pci_info else "ATI/AMD Radeon GPU"
+            return {
+                "available": True,
+                "vendor": "ATI/AMD",
+                "name": name,
+                "driver": driver_name or "radeon",
+                "percent": busy,
+                "encoder_percent": 0,
+                "decoder_percent": 0,
+                "temperature_c": temp_c,
+                "transcoding_active": False,
+            }
+
+    # 4. Fallback: if lspci detected a GPU even if DRM sysfs was incomplete
+    if pci_info and pci_info.get("name"):
+        return {
+            "available": True,
+            "vendor": pci_info.get("vendor", "PCI GPU"),
+            "name": pci_info.get("name"),
+            "driver": "detected",
+            "percent": 0,
+            "encoder_percent": 0,
+            "decoder_percent": 0,
+            "temperature_c": None,
+            "transcoding_active": False,
+        }
 
     return {
         "available": False,
         "vendor": "None",
         "name": "No GPU detected",
+        "driver": "none",
         "percent": 0,
         "transcoding_active": False,
     }
