@@ -12,7 +12,7 @@
 ## 🚀 Key Features
 
 - **Client-Daemon Architecture:** High-performance bidirectional communication via Unix Domain Socket (`IPC`).
-- **Scheduled Nightly Tasks (02:00 AM):**
+- **Scheduled Nightly Tasks (02:00 AM CEST):**
   * **Ubuntu System Update (`apt`):** Autonomous execution of `update` and `upgrade`. In case of errors, immediate email notification.
   * **Docker Container Check & Update:**
     * *New Major or Stable Minor versions:* Automatic update (pull, stop, recreation preserving ports, volumes, networks, and environment). Immediate notification upon failure.
