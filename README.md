@@ -1,4 +1,4 @@
-# Server Guardian (Server Management Semiautomatico) - v1.0
+# ServerManager (Server Management Semiautomatico) - v1.0
 
 [![Target OS](https://img.shields.io/badge/OS-Ubuntu%20Linux-orange?logo=ubuntu)](https://ubuntu.com)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://python.org)
