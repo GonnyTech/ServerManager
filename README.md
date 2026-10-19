@@ -22,7 +22,7 @@
   * Invio simultaneo a due destinatari (principale e backup) via SMTP.
   * Messaggi formulati in lingua inglese (US) con linguaggio naturale chiaro e descrittivo.
 * **Dashboard Interattiva TUI (Textual):**
-  * Monitoraggio real-time di CPU, RAM, utilizzo rete e processi (`psutil`).
+  * Monitoraggio real-time di CPU, RAM, GPU (con rilevamento transcodifica hardware NVENC / Intel QuickSync per app come Jellyfin/Plex), utilizzo rete e processi (`psutil`).
   * Vista container Docker: stato di salute, ID, tag e versioni.
   * Pannello approvazione aggiornamenti: elenco patch in sospeso e pulsante di forzatura manuale.
   * Schermata impostazioni: configurazione SMTP e salvataggio chiavi API LLM.

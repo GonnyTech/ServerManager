@@ -4,12 +4,135 @@ Uses psutil to monitor CPU, RAM, Network, Disk and Processes in real-time.
 """
 
 import time
+import os
+import shutil
+import subprocess
+import glob
+from pathlib import Path
 from typing import Dict, Any, List
 import psutil
 
 # Cache previous network counters for rate calculation
 _last_net_io = None
 _last_net_time = None
+
+
+def get_gpu_metrics() -> Dict[str, Any]:
+    """
+    Detect and gather GPU metrics (NVIDIA NVENC/NVDEC, Intel QuickSync iGPU, AMD).
+    Optimized for media servers (Jellyfin/Plex) and hardware transcoding.
+    """
+    # 1. Check NVIDIA via nvidia-smi
+    nvidia_smi = shutil.which("nvidia-smi")
+    if nvidia_smi:
+        try:
+            cmd = [
+                nvidia_smi,
+                "--query-gpu=name,utilization.gpu,utilization.encoder,utilization.decoder,memory.used,memory.total,temperature.gpu",
+                "--format=csv,noheader,nounits",
+            ]
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=1.5)
+            if res.returncode == 0 and res.stdout.strip():
+                line = res.stdout.strip().split("\n")[0]
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 7:
+                    name = parts[0]
+                    gpu_util = int(parts[1]) if parts[1].isdigit() else 0
+                    enc_util = int(parts[2]) if parts[2].isdigit() else 0
+                    dec_util = int(parts[3]) if parts[3].isdigit() else 0
+                    mem_used = int(parts[4]) if parts[4].isdigit() else 0
+                    mem_total = int(parts[5]) if parts[5].isdigit() else 0
+                    temp = int(parts[6]) if parts[6].isdigit() else 0
+
+                    return {
+                        "available": True,
+                        "vendor": "NVIDIA",
+                        "name": name,
+                        "percent": gpu_util,
+                        "encoder_percent": enc_util,
+                        "decoder_percent": dec_util,
+                        "memory_used_mb": mem_used,
+                        "memory_total_mb": mem_total,
+                        "temperature_c": temp,
+                        "transcoding_active": enc_util > 0 or dec_util > 0,
+                    }
+        except Exception:
+            pass
+
+    # 2. Check Intel QuickSync / iGPU (DRM / sysfs)
+    try:
+        drm_cards = glob.glob("/sys/class/drm/card*")
+        for card in drm_cards:
+            vendor_path = Path(card) / "device" / "vendor"
+            if vendor_path.exists():
+                vendor_id = vendor_path.read_text().strip().lower()
+                if vendor_id == "0x8086":  # Intel
+                    act_freq = 0
+                    max_freq = 0
+                    for freq_file in [
+                        Path(card) / "gt_act_freq_mhz",
+                        Path(card) / "device" / "drm" / Path(card).name / "gt_act_freq_mhz",
+                    ]:
+                        if freq_file.exists():
+                            try:
+                                act_freq = int(freq_file.read_text().strip())
+                                break
+                            except Exception:
+                                pass
+
+                    for max_file in [
+                        Path(card) / "gt_max_freq_mhz",
+                        Path(card) / "device" / "drm" / Path(card).name / "gt_max_freq_mhz",
+                    ]:
+                        if max_file.exists():
+                            try:
+                                max_freq = int(max_file.read_text().strip())
+                                break
+                            except Exception:
+                                pass
+
+                    render_node = Path("/dev/dri/renderD128").exists()
+                    percent = round((act_freq / max_freq) * 100) if max_freq > 0 else 0
+
+                    return {
+                        "available": True,
+                        "vendor": "Intel",
+                        "name": "Intel QuickSync (iGPU)",
+                        "percent": percent,
+                        "encoder_percent": 0,
+                        "decoder_percent": 0,
+                        "freq_mhz": act_freq,
+                        "max_freq_mhz": max_freq,
+                        "render_node_present": render_node,
+                        "transcoding_active": act_freq > 350 if act_freq else False,
+                    }
+                elif vendor_id == "0x1002":  # AMD
+                    gpu_busy_path = Path(card) / "device" / "gpu_busy_percent"
+                    busy = 0
+                    if gpu_busy_path.exists():
+                        try:
+                            busy = int(gpu_busy_path.read_text().strip())
+                        except Exception:
+                            pass
+                    return {
+                        "available": True,
+                        "vendor": "AMD",
+                        "name": "AMD Radeon GPU",
+                        "percent": busy,
+                        "encoder_percent": 0,
+                        "decoder_percent": 0,
+                        "transcoding_active": False,
+                    }
+    except Exception:
+        pass
+
+    return {
+        "available": False,
+        "vendor": "None",
+        "name": "No GPU detected",
+        "percent": 0,
+        "transcoding_active": False,
+    }
 
 
 def get_system_metrics() -> Dict[str, Any]:
@@ -111,5 +234,6 @@ def get_system_metrics() -> Dict[str, Any]:
             "tx_rate_kbps": round(tx_rate / 1024, 2),
             "rx_rate_kbps": round(rx_rate / 1024, 2),
         },
+        "gpu": get_gpu_metrics(),
         "processes": top_processes,
     }

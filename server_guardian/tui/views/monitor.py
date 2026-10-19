@@ -32,12 +32,13 @@ class MonitorView(Container):
     """System Monitoring View featuring resource gauges and process list."""
 
     def compose(self) -> ComposeResult:
-        # 4 Metric Cards
+        # 5 Metric Cards
         with Horizontal(classes="metrics-grid"):
             yield MetricCard("CPU USAGE", "cpu", classes="metric-card")
             yield MetricCard("MEMORY (RAM)", "mem", classes="metric-card")
             yield MetricCard("DISK USAGE (/)", "disk", classes="metric-card")
             yield MetricCard("NETWORK I/O", "net", classes="metric-card")
+            yield MetricCard("GPU (TRANSCODE)", "gpu", classes="metric-card")
 
         # Process Table
         table = DataTable(id="process_table")
@@ -53,12 +54,14 @@ class MonitorView(Container):
         if not metrics:
             return
 
+        cards = list(self.query_one(Horizontal).query(MetricCard))
+
         # CPU Card
         cpu = metrics.get("cpu", {})
         cpu_pct = cpu.get("percent", 0.0)
         cores = cpu.get("logical_cores", 1)
         freq = cpu.get("freq_mhz", 0)
-        self.query_one(Horizontal).query(MetricCard)[0].update_values(
+        cards[0].update_values(
             f"{cpu_pct}%", f"{cores} Cores @ {freq} MHz"
         )
 
@@ -67,7 +70,7 @@ class MonitorView(Container):
         mem_pct = mem.get("percent", 0.0)
         used_mb = mem.get("used_mb", 0)
         total_mb = mem.get("total_mb", 0)
-        self.query_one(Horizontal).query(MetricCard)[1].update_values(
+        cards[1].update_values(
             f"{mem_pct}%", f"{used_mb} MB / {total_mb} MB"
         )
 
@@ -76,7 +79,7 @@ class MonitorView(Container):
         disk_pct = disk.get("percent", 0.0)
         disk_used = disk.get("used_gb", 0)
         disk_total = disk.get("total_gb", 0)
-        self.query_one(Horizontal).query(MetricCard)[2].update_values(
+        cards[2].update_values(
             f"{disk_pct}%", f"{disk_used} GB / {disk_total} GB"
         )
 
@@ -84,9 +87,38 @@ class MonitorView(Container):
         net = metrics.get("network", {})
         rx = net.get("rx_rate_kbps", 0.0)
         tx = net.get("tx_rate_kbps", 0.0)
-        self.query_one(Horizontal).query(MetricCard)[3].update_values(
+        cards[3].update_values(
             f"↓ {rx} KB/s", f"↑ {tx} KB/s"
         )
+
+        # GPU / Transcoding Card
+        gpu = metrics.get("gpu", {})
+        if gpu.get("available"):
+            vendor = gpu.get("vendor", "")
+            name = gpu.get("name", "GPU")
+            gpu_pct = gpu.get("percent", 0)
+            transcoding = gpu.get("transcoding_active", False)
+
+            if vendor == "NVIDIA":
+                enc = gpu.get("encoder_percent", 0)
+                temp = gpu.get("temperature_c", 0)
+                used_m = gpu.get("memory_used_mb", 0)
+                total_m = gpu.get("memory_total_mb", 0)
+                main_txt = f"{gpu_pct}%" + (f" (ENC {enc}%)" if enc > 0 else "")
+                sub_txt = f"{name[:15]} | {temp}°C | {used_m}/{total_m}MB"
+            elif vendor == "Intel":
+                freq = gpu.get("freq_mhz", 0)
+                tag = " (QSV Active)" if transcoding else ""
+                main_txt = f"{gpu_pct}%{tag}" if gpu_pct > 0 else f"{freq}MHz{tag}"
+                sub_txt = f"{name} @ {freq}MHz"
+            else:
+                main_txt = f"{gpu_pct}%"
+                sub_txt = f"{name[:22]}"
+        else:
+            main_txt = "N/A"
+            sub_txt = "No GPU / Driver detected"
+
+        cards[4].update_values(main_txt, sub_txt)
 
         # Update Process Table
         table = self.query_one("#process_table", DataTable)

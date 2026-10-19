@@ -28,7 +28,7 @@ Footer {
 /* Metric Cards */
 .metrics-grid {
     layout: grid;
-    grid-size: 4 1;
+    grid-size: 5 1;
     grid-gutter: 1;
     height: 7;
     margin: 1 1 0 1;

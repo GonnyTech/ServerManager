@@ -65,6 +65,18 @@ class TestServerGuardian(unittest.TestCase):
         self.assertTrue(parsed_resp.get("success"))
         self.assertEqual(parsed_resp.get("data", {}).get("metrics"), 42)
 
+    def test_gpu_metrics_safe_execution(self):
+        from server_guardian.core.metrics import get_gpu_metrics, get_system_metrics
+        gpu = get_gpu_metrics()
+        self.assertIsInstance(gpu, dict)
+        self.assertIn("available", gpu)
+        self.assertIn("percent", gpu)
+
+        sys_metrics = get_system_metrics()
+        self.assertIn("gpu", sys_metrics)
+        self.assertIn("cpu", sys_metrics)
+        self.assertIn("memory", sys_metrics)
+
 
 if __name__ == "__main__":
     unittest.main()
