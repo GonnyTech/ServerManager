@@ -152,6 +152,48 @@ def _scan_pci_sysfs_gpus() -> List[Dict[str, Any]]:
     return gpus
 
 
+def _get_radeon_utilization() -> int:
+    """
+    Measure GPU usage for AMD/ATI cards on Linux:
+    1. radeontop CLI (hardware MMIO counters)
+    2. Dynamic Power Management (DPM) performance clock states
+    """
+    # 1. Check radeontop if installed
+    radeontop = shutil.which("radeontop")
+    if radeontop:
+        try:
+            res = subprocess.run(
+                [radeontop, "-d", "-", "-l", "1"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=1.0,
+            )
+            if res.returncode == 0:
+                import re
+                m = re.search(r"gpu\s+([\d\.]+)%", res.stdout)
+                if m:
+                    return round(float(m.group(1)))
+        except Exception:
+            pass
+
+    # 2. Check sysfs DPM clock levels
+    for card in glob.glob("/sys/class/drm/card[0-9]*"):
+        sclk_file = Path(card) / "device" / "pp_dpm_sclk"
+        if sclk_file.exists():
+            try:
+                lines = sclk_file.read_text().splitlines()
+                if lines:
+                    max_idx = len(lines) - 1
+                    for idx, line in enumerate(lines):
+                        if "*" in line and max_idx > 0:
+                            return round((idx / max_idx) * 100)
+            except Exception:
+                pass
+
+    return 0
+
+
 def get_gpu_metrics() -> Dict[str, Any]:
     """
     Detect and gather GPU metrics (NVIDIA NVENC/NVDEC, AMD/ATI Radeon HD, Intel QuickSync iGPU).
@@ -305,6 +347,8 @@ def get_gpu_metrics() -> Dict[str, Any]:
                     busy = int(gpu_busy_path.read_text().strip())
                 except Exception:
                     pass
+            else:
+                busy = _get_radeon_utilization()
 
             name = pci_info.get("name") if pci_info else "ATI/AMD Radeon GPU"
             return {
@@ -315,18 +359,19 @@ def get_gpu_metrics() -> Dict[str, Any]:
                 "percent": busy,
                 "encoder_percent": 0,
                 "decoder_percent": 0,
-                "temperature_c": temp_c,
+                "temperature_c": temp_c or global_temp_c,
                 "transcoding_active": False,
             }
 
     # 4. Fallback: if lspci detected a GPU even if DRM sysfs was incomplete
     if pci_info and pci_info.get("name"):
+        busy = _get_radeon_utilization() if pci_info.get("vendor") == "ATI/AMD" else 0
         return {
             "available": True,
             "vendor": pci_info.get("vendor", "PCI GPU"),
             "name": pci_info.get("name"),
             "driver": "detected",
-            "percent": 0,
+            "percent": busy,
             "encoder_percent": 0,
             "decoder_percent": 0,
             "temperature_c": global_temp_c,
@@ -344,13 +389,14 @@ def get_gpu_metrics() -> Dict[str, Any]:
 
         name = pci_info.get("name") if (pci_info and pci_info.get("name")) else gpu["name"]
         temp = gpu.get("temperature_c") or global_temp_c
+        busy = _get_radeon_utilization() if gpu["vendor"] == "ATI/AMD" else 0
 
         return {
             "available": True,
             "vendor": gpu["vendor"],
             "name": name,
             "driver": gpu.get("driver") or ("radeon" if gpu["vendor"] == "ATI/AMD" else "generic"),
-            "percent": 0,
+            "percent": busy,
             "encoder_percent": 0,
             "decoder_percent": 0,
             "temperature_c": temp,

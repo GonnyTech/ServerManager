@@ -114,10 +114,10 @@ class MonitorView(Container):
                 sub_txt = f"{name[:20]}{temp_str}"
             elif "ATI" in vendor or "AMD" in vendor:
                 driver = gpu.get("driver", "radeon")
-                main_txt = f"{gpu_pct}%" if gpu_pct > 0 else "Active"
+                main_txt = f"{gpu_pct}%"
                 sub_txt = f"{name[:20]}{temp_str} ({driver})"
             else:
-                main_txt = f"{gpu_pct}%" if gpu_pct > 0 else "Active"
+                main_txt = f"{gpu_pct}%"
                 sub_txt = f"{name[:22]}{temp_str}"
         else:
             main_txt = "N/A"
