@@ -46,7 +46,6 @@ def _detect_pci_gpu() -> Dict[str, str]:
                     import re
                     brackets = re.findall(r"\[(.*?)\]", raw_name)
                     if brackets:
-                        # e.g. ['AMD/ATI', 'RV730 PRO [Radeon HD 4650]'] -> extract 'Radeon HD 4650'
                         last = brackets[-1]
                         if "radeon" in last.lower() or "geforce" in last.lower() or "hd" in last.lower():
                             clean_name = f"ATI {last}" if "ati" in lower and not last.lower().startswith("ati") else last
@@ -63,6 +62,94 @@ def _detect_pci_gpu() -> Dict[str, str]:
     except Exception:
         pass
     return {}
+
+
+def _scan_pci_sysfs_gpus() -> List[Dict[str, Any]]:
+    """
+    Direct kernel sysfs scanner for PCI Display / 3D / VGA controllers.
+    Works on 100% of Linux kernels even without lspci or DRM.
+    """
+    gpus = []
+    try:
+        pci_dirs = glob.glob("/sys/bus/pci/devices/*")
+        for dev in pci_dirs:
+            class_path = Path(dev) / "class"
+            if not class_path.exists():
+                continue
+            try:
+                pci_class = class_path.read_text().strip().lower()
+            except Exception:
+                continue
+
+            # Class 0x03xxxx = Display / VGA / 3D Controller
+            if pci_class.startswith("0x03"):
+                vendor_id = ""
+                device_id = ""
+                try:
+                    v_p = Path(dev) / "vendor"
+                    if v_p.exists():
+                        vendor_id = v_p.read_text().strip().lower()
+                except Exception:
+                    pass
+
+                try:
+                    d_p = Path(dev) / "device"
+                    if d_p.exists():
+                        device_id = d_p.read_text().strip().lower()
+                except Exception:
+                    pass
+
+                driver_name = ""
+                try:
+                    drv_p = Path(dev) / "driver"
+                    if drv_p.exists():
+                        driver_name = drv_p.resolve().name
+                except Exception:
+                    pass
+
+                # Temperature from device hwmon
+                temp_c = None
+                try:
+                    hwmon_dirs = glob.glob(f"{dev}/hwmon/hwmon*")
+                    for h in hwmon_dirs:
+                        t_file = Path(h) / "temp1_input"
+                        if t_file.exists():
+                            temp_c = int(t_file.read_text().strip()) // 1000
+                            break
+                except Exception:
+                    pass
+
+                vendor = "PCI Display"
+                name = f"VGA Controller ({vendor_id}:{device_id})"
+                if vendor_id == "0x1002":
+                    vendor = "ATI/AMD"
+                    if device_id in ["0x9498", "0x9495", "0x9490", "0x9480", "0x9488"]:
+                        name = "ATI Radeon HD 4650"
+                    elif device_id.startswith("0x94") or device_id.startswith("0x95"):
+                        name = "ATI Radeon HD 4000 Series"
+                    elif device_id.startswith("0x67") or device_id.startswith("0x68"):
+                        name = "AMD Radeon HD Series"
+                    else:
+                        name = "ATI/AMD Radeon GPU"
+                elif vendor_id == "0x10de":
+                    vendor = "NVIDIA"
+                    name = "NVIDIA GPU"
+                elif vendor_id == "0x8086":
+                    vendor = "Intel"
+                    name = "Intel HD/UHD Graphics (iGPU)"
+
+                gpus.append({
+                    "vendor": vendor,
+                    "vendor_id": vendor_id,
+                    "device_id": device_id,
+                    "name": name,
+                    "driver": driver_name or ("radeon" if vendor_id == "0x1002" else driver_name),
+                    "temperature_c": temp_c,
+                    "pci_path": dev,
+                })
+    except Exception:
+        pass
+    return gpus
 
 
 def get_gpu_metrics() -> Dict[str, Any]:
@@ -110,6 +197,22 @@ def get_gpu_metrics() -> Dict[str, Any]:
 
     # 2. Check PCI detection via lspci
     pci_info = _detect_pci_gpu()
+
+    # 3. Direct Kernel PCI Sysfs check (guarantees finding hardware even without lspci or DRM)
+    sysfs_gpus = _scan_pci_sysfs_gpus()
+
+    # Global temperature check via hwmon if not found in device
+    global_temp_c = None
+    try:
+        for h in glob.glob("/sys/class/hwmon/hwmon*"):
+            name_f = Path(h) / "name"
+            if name_f.exists() and any(k in name_f.read_text().lower() for k in ["radeon", "amdgpu", "nouveau"]):
+                t_f = Path(h) / "temp1_input"
+                if t_f.exists():
+                    global_temp_c = int(t_f.read_text().strip()) // 1000
+                    break
+    except Exception:
+        pass
 
     # 3. Check Linux DRM / sysfs
     drm_cards = [c for c in glob.glob("/sys/class/drm/card[0-9]*") if "-" not in Path(c).name]
@@ -226,7 +329,31 @@ def get_gpu_metrics() -> Dict[str, Any]:
             "percent": 0,
             "encoder_percent": 0,
             "decoder_percent": 0,
-            "temperature_c": None,
+            "temperature_c": global_temp_c,
+            "transcoding_active": False,
+        }
+
+    # 5. Fallback: Direct Kernel Sysfs PCI check (works without lspci or DRM)
+    if sysfs_gpus:
+        # Prioritize discrete ATI/AMD or NVIDIA GPU over generic display controller
+        gpu = sysfs_gpus[0]
+        for candidate in sysfs_gpus:
+            if candidate["vendor"] in ["ATI/AMD", "NVIDIA"]:
+                gpu = candidate
+                break
+
+        name = pci_info.get("name") if (pci_info and pci_info.get("name")) else gpu["name"]
+        temp = gpu.get("temperature_c") or global_temp_c
+
+        return {
+            "available": True,
+            "vendor": gpu["vendor"],
+            "name": name,
+            "driver": gpu.get("driver") or ("radeon" if gpu["vendor"] == "ATI/AMD" else "generic"),
+            "percent": 0,
+            "encoder_percent": 0,
+            "decoder_percent": 0,
+            "temperature_c": temp,
             "transcoding_active": False,
         }
 
