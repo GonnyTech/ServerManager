@@ -142,7 +142,7 @@ server-guardian
 
 ### Keyboard Shortcuts in the TUI:
 
-* `1` - **Monitoring** Tab (CPU/RAM/Network/Process metrics styled like `htop`)
+* `1` - **Monitoring** Tab (CPU/GPU/RAM/Network/Process metrics styled like `htop`)
 * `2` - **Docker** Tab (Overview of active containers and versions)
 * `3` - **Updates** Tab (Patch review and manual force release)
 * `4` - **Settings** Tab (SMTP configuration, email recipients, and LLM APIs)
