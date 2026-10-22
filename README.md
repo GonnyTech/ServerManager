@@ -80,7 +80,7 @@ ServerManager/
 ### 1. Cloning the Repository
 
 ```bash
-git clone [https://github.com/GonnyTech/ServerManager.git](https://github.com/GonnyTech/ServerManager.git)
+git clone https://github.com/GonnyTech/ServerManager.git
 cd ServerManager
 
 ```
